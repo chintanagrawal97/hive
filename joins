@@ -1,0 +1,89 @@
+Joins in Hive
+
+
+select s.exch , d.dividned from stocks s inner join dividends d on <>
+
+select <> from <table_name> left outer Join <table_name> on <>
+
+select <> from <table_name> right outer Join <table_name> on <>
+
+select <> from <table_name> full outer Join <table_name> on <>
+
+Left Semi Join 
+Record from the left side table is present in the right side table. As soon as there is a match you want to move on to next record in left side table
+select <> from <table_name> left semi Join <table_name> on <>
+
+-----Inequality Joins in Map reduce ------
+'Do a cross Join and apply the inequality condition '
+select <> from <table_name> cross Join <table_name> where s.ymd > d.ymd
+
+--Multiable Joins ----
+Same as sql 
+
+How many map reduce join will ne needed to perform each of the join operation 
+For every table if the same column is used then the entire job operation will done in a single map reduce job
+
+select <column> from a Join b on (a.key=b.key) join c on (c.key = b.key)
+
+select <column> from a Join b on (a.key=b.key1) join c on (c.key = b.key2)
+Two map reduce join  1 st MR to Join a andd b then the second for b and c.
+
+
+---Hive Join Optimisations---
+select s.exch , s.symbol , s.ymd,s.price_close,d.dividend from stocks s inner join dividends d on s.symbol and s.ymd = d.ymd
+
+How Join Work 
+1.The stocks and dividend datasets are read by individual mappers 
+2.Each mapper emits a key value pair . key is the symbol column and the entire record will emit as value.
+3. Shuffle phase will sort the record by key 
+4. Each key will be assigned a reducer
+5. Records from all table except the last table will be loaded into the memory on the reducer 
+6. Records from the last table will be streamed 
+
+
+Hence modify the sql query to have smaller table to be on left side 
+or specfiy the STREAMTABLE
+
+select /* STREAMTABLE(s) */ s.exch , s.symbol , s.ymd,s.price_close,d.dividend from stocks s inner join dividends d on s.symbol and s.ymd = d.ymd 
+
+Shuffle in the reduce phase -- heavy operation 
+
+---Map Join to avoid reduce phase---
+
+MAPJOIN(table)-- small table 
+select /* MAPJOIN(d) */ s.exch , s.symbol , s.ymd,s.price_close,d.dividend from stocks s inner join dividends d on s.symbol and s.ymd = d.ymd 
+1. A new task is launched. Reads the dividend daatset and serializes it into a new hash table. 
+2.Hash table is the uploaded to hadoop distributed cache .  Dividends hash table will be available locally to each mapper
+3.Map task recieves the hash table and loads it into the memory. 
+4. Read the large dataset and do joins . Each mapper will have the dividend dataset and will read the corresponding input split for stocks dataset . 
+Now which Joins are possible 
+-Inner Join Yes 
+-Left Outer Join -- Meanig all records in the left table i.e stocks and the corresponding matches in dividend - Yes 
+-Right Outer Join - All records from dividend and matching records.NOt possible because if you don't find a matching stock record in that case you cannot simply substitute null for stocks because mapper number 1 might not have the matching stock record but mapper number might have the matching stock record  
+-Full Outer Join is not possible 
+
+Auto Map Join
+SET hive.auto.convert.join = true 
+Hive table needs to know which table is the smallest to be sent to distributed cache 
+Size of the mapjoin table
+SET hive.mapjoin.smalltable.filesize = <bytes>
+
+SMB MAP Join
+It needs the following criterias 
+All Join table must be bucketised  
+Number of buckets of big table should be divisible by number of buckets of each of the small table in your query 
+Bucket column from the table and Join columns should be the same 
+
+SET hive.enforce.bucketing = true 
+SET hive.optimize.bucketmapjoin = true 
+SET hive.optimize.bucketmapjoin.sortedmerge = true 
+SET hive.auto.convert.sortmerge.join.noconditionaltask = true 
+
+1.MR job will span mappers based on the big table. Since big table had 10 buckets it will result in 10 mappers.
+2.Only the matching buckets of Dividends table are replicate onto each mapper  
+3 Perform the join opertaion on each mapper 
+Since the records are already sorted and only the matching buckets are considered in this join operation this join is performed entirely on the map side. 
+   
+
+
+
